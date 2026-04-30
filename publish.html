@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Publier un trajet — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<div id="main-nav"></div>
+
+<div class="page-hero">
+  <div class="page-hero-inner">
+    <h1>📢 Publier un trajet</h1>
+    <p>Partagez votre prochain trajet et réduisez vos frais.</p>
+  </div>
+</div>
+
+<main class="page-content">
+  <div class="publish-layout">
+
+    <!-- Main form -->
+    <div>
+      <div class="card publish-form-card">
+        <h2 class="section-title mb-24">✍️ Informations du trajet</h2>
+
+        <form id="publishForm" novalidate>
+
+          <!-- Driver name (pre-filled) -->
+          <div class="form-group mb-16">
+            <label class="form-label" for="driverName">Nom du conducteur</label>
+            <input type="text" id="driverName" class="form-control" readonly
+                   style="background:var(--bg);cursor:default"/>
+          </div>
+
+          <!-- Route -->
+          <div class="form-row mb-16">
+            <div class="form-group">
+              <label class="form-label" for="from">📍 Ville de départ</label>
+              <input type="text" id="from" class="form-control"
+                     placeholder="Ex: Tunis" list="cityList"/>
+              <span class="form-error" id="fromErr">Ville de départ requise.</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="to">🏁 Ville d'arrivée</label>
+              <input type="text" id="to" class="form-control"
+                     placeholder="Ex: Sfax" list="cityList"/>
+              <span class="form-error" id="toErr">Ville d'arrivée requise.</span>
+            </div>
+          </div>
+
+          <!-- City autocomplete -->
+          <datalist id="cityList">
+            <option value="Tunis"/><option value="Sfax"/><option value="Sousse"/>
+            <option value="Monastir"/><option value="Gabes"/><option value="Bizerte"/>
+            <option value="Nabeul"/><option value="Kairouan"/><option value="Gafsa"/>
+            <option value="Djerba"/><option value="Medenine"/><option value="Mahdia"/>
+          </datalist>
+
+          <!-- Date & time -->
+          <div class="form-row mb-16">
+            <div class="form-group">
+              <label class="form-label" for="date">📅 Date du trajet</label>
+              <input type="date" id="date" class="form-control"/>
+              <span class="form-error" id="dateErr">Date requise.</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="time">⏰ Heure de départ</label>
+              <input type="time" id="time" class="form-control"/>
+              <span class="form-error" id="timeErr">Heure requise.</span>
+            </div>
+          </div>
+
+          <!-- Seats & price -->
+          <div class="form-row mb-16">
+            <div class="form-group">
+              <label class="form-label" for="seats">💺 Nombre de places</label>
+              <input type="number" id="seats" class="form-control"
+                     min="1" max="8" placeholder="Ex: 3"/>
+              <span class="form-error" id="seatsErr">Minimum 1 place.</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="price">💰 Prix par personne (TND)</label>
+              <input type="number" id="price" class="form-control"
+                     min="0" step="0.5" placeholder="Ex: 15.00"/>
+              <span class="form-error" id="priceErr">Prix invalide (≥ 0).</span>
+            </div>
+          </div>
+
+          <!-- Phone -->
+          <div class="form-group mb-16">
+            <label class="form-label" for="phone">📞 Téléphone de contact</label>
+            <input type="tel" id="phone" class="form-control"
+                   placeholder="55123456" maxlength="8"/>
+            <span class="form-error" id="phoneErr">8 chiffres requis.</span>
+          </div>
+
+          <!-- Note -->
+          <div class="form-group mb-24">
+            <label class="form-label" for="note">📝 Note (optionnel)</label>
+            <textarea id="note" class="form-control" rows="3"
+                      placeholder="Bagages autorisés, préférences, point de rendez-vous..."></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full btn-lg" id="btnPublish">
+            🚀 Publier le trajet
+          </button>
+
+        </form>
+      </div>
+    </div>
+
+    <!-- Sidebar preview -->
+    <aside>
+      <div class="booking-card" style="position:sticky;top:88px">
+        <h3 class="section-title">👁️ Aperçu</h3>
+        <div id="preview" style="color:var(--text-muted);font-size:.9rem;text-align:center;padding:20px 0">
+          Remplissez le formulaire pour voir l'aperçu de votre annonce.
+        </div>
+      </div>
+
+      <div class="card card-body mt-16">
+        <div class="section-title mb-16">💡 Conseils</div>
+        <ul style="display:flex;flex-direction:column;gap:10px;font-size:.88rem;color:var(--text-secondary)">
+          <li>✅ Indiquez un point de rendez-vous précis dans la note</li>
+          <li>✅ Le prix affiché est par personne</li>
+          <li>✅ Répondez rapidement aux passagers</li>
+          <li>✅ Respectez les horaires communiqués</li>
+        </ul>
+      </div>
+    </aside>
+
+  </div>
+</main>
+
+<footer><strong>Covoiturage TN</strong> — Partagez la route 🚗</footer>
+<div id="toast-container"></div>
+
+<script src="assets/js/app.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (!requireAuth()) return;
+  buildNav('publish');
+
+  // Pre-fill driver name from session
+  const user = Session.get();
+  if (user) document.getElementById('driverName').value = user.full_name || '';
+
+  // Set minimum date to today
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('date').min = today;
+
+  // Live preview
+  ['from','to','date','time','seats','price'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updatePreview);
+  });
+
+  // Submit
+  document.getElementById('publishForm').addEventListener('submit', e => {
+    e.preventDefault();
+    doPublish();
+  });
+});
+
+/* ── Live preview ── */
+function updatePreview() {
+  const from  = document.getElementById('from').value.trim();
+  const to    = document.getElementById('to').value.trim();
+  const date  = document.getElementById('date').value;
+  const time  = document.getElementById('time').value;
+  const seats = document.getElementById('seats').value;
+  const price = document.getElementById('price').value;
+
+  if (!from && !to) {
+    document.getElementById('preview').innerHTML =
+      `<span style="color:var(--text-muted)">Remplissez le formulaire...</span>`;
+    return;
+  }
+
+  document.getElementById('preview').innerHTML = `
+    <div style="text-align:left">
+      <div class="ride-card" style="cursor:default;margin:0">
+        <div class="ride-card-header">
+          <div class="ride-route">
+            <div class="ride-route-line">
+              <div class="dot"></div>
+              <div class="route-line"></div>
+              <div class="dot dest"></div>
+            </div>
+            <div class="ride-cities">
+              <span class="ride-city">${escHtml(from || '?')}</span>
+              <span class="ride-city">${escHtml(to || '?')}</span>
+            </div>
+          </div>
+          <div class="ride-price">${price ? fmtPrice(price) : '—'}</div>
+        </div>
+        <div class="ride-card-footer">
+          ${date ? `<span>📅 ${fmtDate(date)}</span>` : ''}
+          ${time ? `<span>⏰ ${time}</span>` : ''}
+          ${seats ? `<span>💺 ${seats} place${parseInt(seats)>1?'s':''}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ── Publish ride ── */
+async function doPublish() {
+  const fields = [
+    ['from',  'fromErr',  [[Validators.required, 'Ville de départ requise.']]],
+    ['to',    'toErr',    [[Validators.required, 'Ville d\'arrivée requise.']]],
+    ['date',  'dateErr',  [[Validators.required, 'Date requise.']]],
+    ['time',  'timeErr',  [[Validators.required, 'Heure requise.']]],
+    ['seats', 'seatsErr', [[Validators.positive, 'Minimum 1 place.']]],
+    ['price', 'priceErr', [[Validators.nonNeg,   'Prix invalide.']]],
+    ['phone', 'phoneErr', [[Validators.phone,     '8 chiffres requis.']]],
+  ];
+
+  let valid = true;
+  for (const [id, errId, rules] of fields) {
+    const el    = document.getElementById(id);
+    const errEl = document.getElementById(errId);
+    let ok = true;
+    for (const [fn, msg] of rules) {
+      if (!fn(el.value)) {
+        el.classList.add('error');
+        errEl.textContent = msg;
+        errEl.classList.add('show');
+        ok = false;
+        valid = false;
+        break;
+      }
+    }
+    if (ok) { el.classList.remove('error'); errEl?.classList.remove('show'); }
+  }
+
+  // Extra: from ≠ to
+  const from = document.getElementById('from').value.trim();
+  const to   = document.getElementById('to').value.trim();
+  if (from && to && from.toLowerCase() === to.toLowerCase()) {
+    document.getElementById('to').classList.add('error');
+    document.getElementById('toErr').textContent = 'Départ et arrivée doivent être différents.';
+    document.getElementById('toErr').classList.add('show');
+    valid = false;
+  }
+
+  if (!valid) { showToast('Veuillez corriger les erreurs.', 'error'); return; }
+
+  const btn = document.getElementById('btnPublish');
+  btn.disabled = true;
+  btn.textContent = '⏳ Publication...';
+
+  const user = Session.get();
+  const data = await apiFetch(API.rides.post, {
+    method: 'POST',
+    body: {
+      driver_id:  user.id,
+      driverName: user.full_name,
+      from:       from,
+      to:         to,
+      date:       document.getElementById('date').value,
+      time:       document.getElementById('time').value,
+      seats:      parseInt(document.getElementById('seats').value),
+      price:      parseFloat(document.getElementById('price').value),
+      phone:      document.getElementById('phone').value.trim(),
+      note:       document.getElementById('note').value.trim(),
+    }
+  });
+
+  if (data.success) {
+    showToast('🎉 Trajet publié avec succès !', 'success', 4000);
+    setTimeout(() => window.location.href = 'myrides.html', 1000);
+  } else {
+    showToast('❌ ' + (data.message || 'Erreur lors de la publication.'), 'error');
+    btn.disabled = false;
+    btn.textContent = '🚀 Publier le trajet';
+  }
+}
+</script>
+</body>
+</html>

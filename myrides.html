@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mes Trajets — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+
+<div id="main-nav"></div>
+
+<div class="page-hero">
+  <div class="page-hero-inner">
+    <h1>🚗 Mes Trajets</h1>
+    <p>Vos trajets publiés et vos réservations</p>
+  </div>
+</div>
+
+<main class="page-content">
+
+  <div class="stats-row mb-24" id="statsRow">
+    <div class="stat-card"><div class="skeleton" style="height:40px;border-radius:8px"></div></div>
+    <div class="stat-card"><div class="skeleton" style="height:40px;border-radius:8px"></div></div>
+    <div class="stat-card"><div class="skeleton" style="height:40px;border-radius:8px"></div></div>
+  </div>
+
+  <div class="d-flex align-center gap-12 mb-16" style="flex-wrap:wrap;justify-content:space-between">
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" id="tab-published" role="tab">📢 Publiés</button>
+      <button class="tab-btn"        id="tab-booked"    role="tab">🎫 Réservés</button>
+    </div>
+    <a href="publish.html" class="btn btn-primary btn-sm">➕ Publier un trajet</a>
+  </div>
+
+  <div class="tab-panel active" id="panel-published">
+    <div id="publishedContainer"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+  </div>
+  <div class="tab-panel" id="panel-booked">
+    <div id="bookedContainer"><div class="spinner-wrap"><div class="spinner"></div></div></div>
+  </div>
+
+</main>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>🗑️ Supprimer le trajet</h3>
+      <button class="modal-close" id="btnCloseDeleteModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-error">⚠️ Cette action est irréversible.</div>
+      <p id="deleteModalDesc" style="margin-top:12px;font-weight:600;color:var(--text-primary)"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btnCancelDelete">Annuler</button>
+      <button class="btn btn-danger" id="btnConfirmDelete">🗑️ Supprimer</button>
+    </div>
+  </div>
+</div>
+
+<footer><strong>Covoiturage TN</strong> — Partagez la route 🚗</footer>
+<div id="toast-container"></div>
+<script src="assets/js/app.js"></script>
+<script>
+let publishedRides = [];
+let bookedRides    = [];
+let rideToDelete   = null;
+
+/*  DOMContentLoaded  */
+document.addEventListener('DOMContentLoaded', () => {
+  if (!requireAuth()) return;
+  buildNav('myrides');
+  loadData();
+
+  /* addEventListener — tab switching (satisfies DOM events requirement) */
+  document.getElementById('tab-published').addEventListener('click', () => switchTab('published'));
+  document.getElementById('tab-booked').addEventListener('click',    () => switchTab('booked'));
+
+  /* addEventListener — modal buttons */
+  document.getElementById('btnCloseDeleteModal').addEventListener('click', () => closeModal('deleteModal'));
+  document.getElementById('btnCancelDelete').addEventListener('click',     () => closeModal('deleteModal'));
+  document.getElementById('btnConfirmDelete').addEventListener('click',    confirmDelete);
+});
+
+/*  switchTab — classList.add/remove (DOM manipulation) */
+function switchTab(tab) {
+  /* querySelectorAll — selects all tab buttons */
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  /* getElementById — selects specific element */
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+async function loadData() {
+  const userId = Session.id();
+  await Promise.all([loadPublished(userId), loadBooked(userId)]);
+  renderStats();
+}
+
+async function loadPublished(userId) {
+  const data = await apiFetch(API.rides.userRides + '?user_id=' + userId);
+  publishedRides = data.success ? (data.data || []) : [];
+  renderPublished();
+}
+
+async function loadBooked(userId) {
+  const data = await apiFetch(API.rides.bookings + '?user_id=' + userId);
+  bookedRides = data.success ? (data.data || []) : [];
+  renderBooked();
+}
+
+/* renderStats — innerHTML DOM manipulation */
+function renderStats() {
+  const totalSeats = bookedRides.reduce((a, r) => a + parseInt(r.seats_booked || 0), 0);
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-number">${publishedRides.length}</div>
+      <div class="stat-label">Trajets publiés</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${bookedRides.length}</div>
+      <div class="stat-label">Réservations</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${totalSeats}</div>
+      <div class="stat-label">Places réservées</div>
+    </div>`;
+}
+
+/*  renderPublished — createElement + appendChild (DOM add elements)  */
+function renderPublished() {
+  const container = document.getElementById('publishedContainer');
+  container.innerHTML = '';   /* clear existing content */
+
+  if (publishedRides.length === 0) {
+    /* createElement to add empty state */
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.innerHTML = `
+      <div class="emoji">📢</div>
+      <h3>Aucun trajet publié</h3>
+      <p>Partagez votre prochain trajet et réduisez vos frais.</p>
+      <a href="publish.html" class="btn btn-primary">➕ Publier un trajet</a>`;
+    container.appendChild(empty);
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'rides-grid';
+
+  publishedRides.forEach(ride => {
+    const seats  = parseInt(ride.available_seats ?? 0);
+    const total  = parseInt(ride.total_seats ?? 0);
+    const booked = total - seats;
+    const pct    = total > 0 ? Math.round((booked / total) * 100) : 0;
+
+    /* createElement for each card */
+    const card = document.createElement('article');
+    card.className = 'ride-card';
+    card.innerHTML = `
+      <div class="ride-card-header">
+        <div class="ride-route">
+          <div class="ride-route-line">
+            <div class="dot"></div><div class="route-line"></div><div class="dot dest"></div>
+          </div>
+          <div class="ride-cities">
+            <span class="ride-city">${escHtml(ride.from_city)}</span>
+            <span class="ride-city">${escHtml(ride.to_city)}</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="ride-price">${fmtPrice(ride.price)}</div>
+          <span class="badge ${ride.status === 'active' ? 'badge-green' : 'badge-red'}" style="margin-top:4px">
+            ${ride.status === 'active' ? '✅ Actif' : '❌ Complet'}
+          </span>
+        </div>
+      </div>
+      <div style="margin:10px 0 6px">
+        <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--text-muted);margin-bottom:4px">
+          <span>${booked} réservé${booked > 1 ? 's' : ''}</span>
+          <span>${seats} / ${total} places dispo</span>
+        </div>
+        <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--gradient);border-radius:3px"></div>
+        </div>
+      </div>
+      <div class="ride-card-footer">
+        <span>📅 ${fmtDate(ride.ride_date)}</span>
+        <span>⏰ ${fmtTime(ride.ride_time)}</span>
+        <span>💰 ${fmtPrice(ride.price)}</span>
+        <button class="btn btn-danger btn-sm btn-del" style="margin-left:auto;border-radius:8px">
+          🗑️ Supprimer
+        </button>
+      </div>`;
+
+    /* addEventListener on delete button — stops propagation so card click doesn't fire */
+    card.querySelector('.btn-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      askDeleteRide(ride);
+    });
+
+    /* addEventListener on the card itself for navigation */
+    card.addEventListener('click', () => {
+      window.location.href = `ride-detail.html?id=${ride.id}`;
+    });
+
+    grid.appendChild(card);   /* appendChild — DOM add element */
+  });
+
+  container.appendChild(grid);
+}
+
+/*  askDeleteRide — open modal + update DOM text  */
+function askDeleteRide(ride) {
+  rideToDelete = ride;
+  /* querySelector inside modal to update text */
+  document.querySelector('#deleteModalDesc').textContent =
+    `${ride.from_city} → ${ride.to_city} · ${fmtDate(ride.ride_date)} · ${fmtTime(ride.ride_time)}`;
+  openModal('deleteModal');
+}
+
+/*  confirmDelete — AJAX fetch → PHP → MySQL DELETE */
+async function confirmDelete() {
+  if (!rideToDelete) return;
+  const btn = document.getElementById('btnConfirmDelete');
+  btn.disabled = true;
+  btn.textContent = '⏳ Suppression...';
+
+  /* fetch() — AJAX call to PHP (satisfies AJAX requirement) */
+  const data = await apiFetch('/rides/deleteRide.php', {
+    method: 'POST',
+    body: { ride_id: rideToDelete.id, driver_id: Session.id() }
+  });
+
+  closeModal('deleteModal');
+
+  if (data.success) {
+    showToast('✅ Trajet supprimé', 'success');
+    /* Remove element from DOM without page reload */
+    publishedRides = publishedRides.filter(r => r.id !== rideToDelete.id);
+    renderPublished();
+    renderStats();
+  } else {
+    showToast('❌ ' + (data.message || 'Erreur suppression'), 'error');
+  }
+
+  rideToDelete = null;
+  btn.disabled = false;
+  btn.textContent = '🗑️ Supprimer';
+}
+
+/* renderBooked  */
+function renderBooked() {
+  const container = document.getElementById('bookedContainer');
+  if (bookedRides.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="emoji">🎫</div>
+        <h3>Aucune réservation</h3>
+        <p>Trouvez un trajet et réservez votre place !</p>
+        <a href="index.html" class="btn btn-primary">🔍 Rechercher un trajet</a>
+      </div>`;
+    return;
+  }
+  container.innerHTML = `<div class="rides-grid">${bookedRides.map(r => {
+    const n = parseInt(r.seats_booked || 0);
+    const tot = fmtPrice(parseFloat(r.price || 0) * n);
+    return `
+      <article class="ride-card" onclick="window.location.href='ride-detail.html?id=${r.id}'">
+        <div class="ride-card-header">
+          <div class="ride-route">
+            <div class="ride-route-line">
+              <div class="dot"></div><div class="route-line"></div><div class="dot dest"></div>
+            </div>
+            <div class="ride-cities">
+              <span class="ride-city">${escHtml(r.from_city)}</span>
+              <span class="ride-city">${escHtml(r.to_city)}</span>
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div class="ride-price">${tot}</div>
+            <div style="font-size:.78rem;color:var(--text-muted)">${n} place${n>1?'s':''}</div>
+          </div>
+        </div>
+        <div style="padding:8px 0;display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge badge-blue">🎫 ${n} place${n>1?'s':''}</span>
+          <span class="badge ${r.booking_status === 'confirmed' ? 'badge-green' : 'badge-gray'}">
+            ${r.booking_status === 'confirmed' ? '✅ Confirmé' : escHtml(r.booking_status)}
+          </span>
+        </div>
+        <div class="ride-card-footer">
+          <span>📅 ${fmtDate(r.ride_date)}</span>
+          <span>⏰ ${fmtTime(r.ride_time)}</span>
+          <span>👤 ${escHtml(r.driver_name || '')}</span>
+          <span>📞 ${escHtml(r.driver_phone || '')}</span>
+        </div>
+        <div style="font-size:.75rem;color:var(--text-muted);padding-top:6px;border-top:1px solid var(--border);margin-top:4px">
+          Réservé le ${fmtDate(r.booked_at)}
+        </div>
+      </article>`;
+  }).join('')}</div>`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Covoiturage TN — Trouvez votre trajet</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+  <!-- Leaflet for map previews -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</head>
+<body>
+
+<!--  Navigation  -->
+<div id="main-nav"></div>
+
+<!--  Hero with search  -->
+<header class="page-hero">
+  <div class="page-hero-inner">
+    <h1>🚗 Trouvez votre trajet en Tunisie</h1>
+    <p>Des milliers de trajets partagés à prix réduit, chaque jour.</p>
+  </div>
+</header>
+
+<!--  Main content  -->
+<main>
+  <div class="container">
+
+    <!-- Search Card (pulls up over hero) -->
+    <section class="search-card" aria-label="Recherche de trajets">
+      <form class="search-form" id="searchForm" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="searchFrom">📍 Départ</label>
+          <div class="input-icon-wrap">
+            <span class="input-icon">🏙️</span>
+            <input type="text" id="searchFrom" class="form-control"
+                   placeholder="Ex: Tunis" autocomplete="off"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="searchTo">🏁 Arrivée</label>
+          <div class="input-icon-wrap">
+            <span class="input-icon">📌</span>
+            <input type="text" id="searchTo" class="form-control"
+                   placeholder="Ex: Sfax" autocomplete="off"/>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">
+          🔍 Rechercher
+        </button>
+      </form>
+    </section>
+
+    <!-- Rides section -->
+    <section class="section mt-24">
+      <div class="d-flex align-center gap-12 mb-16" style="justify-content:space-between;flex-wrap:wrap;">
+        <h2 class="section-title" style="margin:0">🛣️ Trajets disponibles</h2>
+        <div id="ridesCount" class="text-muted" style="font-size:.88rem"></div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="d-flex gap-8 mb-16" style="flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-outline btn-sm filter-btn active" data-status="all">Tous</button>
+        <button class="btn btn-outline btn-sm filter-btn" data-status="active">Disponibles</button>
+        <button class="btn btn-outline btn-sm filter-btn" data-status="full">Complets</button>
+        <div style="margin-left:auto">
+          <select class="form-control" id="sortSelect" style="padding:8px 12px;font-size:.85rem">
+            <option value="date">Trier par date</option>
+            <option value="price-asc">Prix croissant</option>
+            <option value="price-desc">Prix décroissant</option>
+            <option value="seats">Places disponibles</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Rides list -->
+      <div id="ridesContainer">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <strong>Covoiturage TN</strong> — Partagez la route, partagez les frais 🚗
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="assets/js/app.js"></script>
+<script>
+/*  State  */
+let allRides = [];
+let currentFilter = 'all';
+let currentSort   = 'date';
+let searching     = false;
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', () => {
+  buildNav('home');
+  loadRides();
+
+  document.getElementById('searchForm').addEventListener('submit', e => {
+    e.preventDefault();
+    doSearch();
+  });
+
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.status;
+      renderRides();
+    });
+  });
+
+  document.getElementById('sortSelect').addEventListener('change', e => {
+    currentSort = e.target.value;
+    renderRides();
+  });
+});
+
+/* Load all rides */
+async function loadRides() {
+  const container = document.getElementById('ridesContainer');
+  container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  try {
+    const data = await apiFetch(API.rides.get);
+    if (data.success) {
+      allRides = data.data || [];
+      renderRides();
+    } else {
+      container.innerHTML = `<div class="alert alert-error">⚠️ ${escHtml(data.message)}</div>`;
+    }
+  } catch {
+    container.innerHTML = `<div class="alert alert-error">❌ Impossible de charger les trajets.</div>`;
+  }
+}
+
+/* Search rides  */
+async function doSearch() {
+  const from = document.getElementById('searchFrom').value.trim();
+  const to   = document.getElementById('searchTo').value.trim();
+  const container = document.getElementById('ridesContainer');
+
+  container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  searching = true;
+
+  const params = new URLSearchParams();
+  if (from) params.append('from', from);
+  if (to)   params.append('to', to);
+
+  const url = API.rides.get + (params.toString() ? '?' + params.toString() : '');
+
+  try {
+    const res = await fetch(apiUrl('') + url);
+    const data = await res.json();
+    if (data.success) {
+      allRides = data.data || [];
+      if (allRides.length === 0) {
+        showToast('Aucun trajet trouvé pour cette recherche', 'info');
+      }
+      renderRides();
+    } else {
+      container.innerHTML = `<div class="alert alert-error">${escHtml(data.message)}</div>`;
+    }
+  } catch {
+    container.innerHTML = `<div class="alert alert-error">❌ Erreur réseau.</div>`;
+  }
+  searching = false;
+}
+
+/* Render rides with filter + sort */
+function renderRides() {
+  let list = [...allRides];
+
+  // Filter
+  if (currentFilter !== 'all') {
+    list = list.filter(r => r.status === currentFilter);
+  }
+
+  // Sort
+  if (currentSort === 'price-asc')  list.sort((a,b) => parseFloat(a.price) - parseFloat(b.price));
+  if (currentSort === 'price-desc') list.sort((a,b) => parseFloat(b.price) - parseFloat(a.price));
+  if (currentSort === 'seats')      list.sort((a,b) => parseInt(b.available_seats) - parseInt(a.available_seats));
+  if (currentSort === 'date')       list.sort((a,b) => (a.ride_date + a.ride_time).localeCompare(b.ride_date + b.ride_time));
+
+  const countEl = document.getElementById('ridesCount');
+  countEl.textContent = `${list.length} trajet${list.length !== 1 ? 's' : ''} trouvé${list.length !== 1 ? 's' : ''}`;
+
+  const container = document.getElementById('ridesContainer');
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="emoji">🚗</div>
+        <h3>Aucun trajet disponible</h3>
+        <p>Modifiez vos critères ou publiez le vôtre !</p>
+        ${Session.isAuth()
+          ? `<a href="publish.html" class="btn btn-primary">➕ Publier un trajet</a>`
+          : `<a href="login.html"   class="btn btn-primary">🔑 Se connecter</a>`}
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="rides-grid">${list.map(r => buildRideCard(
+    r,
+    `goToDetail(${r.id})`,
+    'search'
+  )).join('')}</div>`;
+}
+
+/* Navigate to detail  */
+function goToDetail(rideId) {
+  window.location.href = `ride-detail.html?id=${rideId}`;
+}
+</script>
+</body>
+</html>

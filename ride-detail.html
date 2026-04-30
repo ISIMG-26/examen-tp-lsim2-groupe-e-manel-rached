@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Détail du trajet — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</head>
+<body>
+<div id="main-nav"></div>
+
+<!-- Hero -->
+<div class="page-hero">
+  <div class="page-hero-inner">
+    <h1 id="heroTitle">🗺️ Détail du trajet</h1>
+    <p id="heroSub">Chargement...</p>
+  </div>
+</div>
+
+<main class="page-content">
+  <div id="pageContent">
+    <div class="spinner-wrap"><div class="spinner"></div></div>
+  </div>
+</main>
+
+<!-- Confirm booking modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>✅ Confirmer la réservation</h3>
+      <button class="modal-close" onclick="closeModal('confirmModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="confirmSummary"></div>
+      <div class="alert alert-info mt-16">
+        ℹ️ La réservation est immédiate. Les places sont déduites en temps réel.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">Annuler</button>
+      <button class="btn btn-primary" id="btnConfirmBook" onclick="confirmBook()">
+        ✅ Confirmer la réservation
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<footer>
+  <strong>Covoiturage TN</strong> — Partagez la route, partagez les frais 🚗
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="assets/js/app.js"></script>
+<script>
+let currentRide   = null;
+let leafletMap    = null;
+let seatsToPick   = 1;
+
+/* Init */
+document.addEventListener('DOMContentLoaded', () => {
+  buildNav('');
+  const params = new URLSearchParams(window.location.search);
+  const rideId = parseInt(params.get('id'));
+  if (!rideId) {
+    document.getElementById('pageContent').innerHTML =
+      `<div class="alert alert-error">❌ Trajet introuvable. <a href="index.html">Retour</a></div>`;
+    return;
+  }
+  loadRideDetail(rideId);
+});
+
+/*  Load ride by fetching all and filtering (since no single-ride endpoint)*/
+async function loadRideDetail(rideId) {
+  const data = await apiFetch(API.rides.get);
+  if (!data.success) {
+    showError('Impossible de charger le trajet.');
+    return;
+  }
+  // Find ride in list
+  currentRide = (data.data || []).find(r => parseInt(r.id) === rideId);
+  if (!currentRide) {
+    showError('Trajet introuvable.');
+    return;
+  }
+  // Fetch live seat count
+  const seatsData = await apiFetch(API.rides.seats + '?ride_id=' + rideId);
+  if (seatsData.success) {
+    currentRide.available_seats = seatsData.available_seats;
+    currentRide.status          = seatsData.status;
+  }
+  renderDetail(currentRide);
+}
+
+/*  Render full detail layout  */
+function renderDetail(ride) {
+  const from    = ride.from_city || '';
+  const to      = ride.to_city   || '';
+  const seats   = parseInt(ride.available_seats ?? 0);
+  const full    = seats <= 0 || ride.status === 'full';
+  const price   = parseFloat(ride.price ?? 0);
+
+  document.getElementById('heroTitle').textContent = `🗺️ ${from} → ${to}`;
+  document.getElementById('heroSub').textContent   =
+    `${fmtDate(ride.ride_date)} · ${fmtTime(ride.ride_time)} · ${fmtPrice(price)}`;
+
+  document.getElementById('pageContent').innerHTML = `
+    <div style="margin-bottom:16px">
+      <a href="index.html" class="btn btn-ghost btn-sm">← Retour aux trajets</a>
+    </div>
+
+    <div class="detail-layout">
+
+      <!-- Left column: ride info -->
+      <div>
+
+        <!-- Route card -->
+        <div class="card detail-card mb-16">
+          <div class="section-title">🗺️ Itinéraire</div>
+          <div class="route-visual">
+            <div class="route-visual-line">
+              <div class="route-dot"></div>
+              <div class="route-dash"></div>
+              <div class="route-dot dest"></div>
+            </div>
+            <div class="route-info">
+              <div>
+                <div class="route-stop-label">Départ</div>
+                <div class="route-stop-city">${escHtml(from)}</div>
+              </div>
+              <div>
+                <div class="route-stop-label">Arrivée</div>
+                <div class="route-stop-city">${escHtml(to)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Map card -->
+        <div class="card mb-16">
+          <div class="map-container">
+            <div id="detailMap"></div>
+          </div>
+        </div>
+
+        <!-- Driver info card -->
+        <div class="card detail-card mb-16">
+          <div class="section-title">👤 Conducteur</div>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+            <div class="nav-avatar" style="width:56px;height:56px;font-size:1.2rem;flex-shrink:0">
+              ${initials(ride.driver_name)}
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1.1rem">${escHtml(ride.driver_name || '')}</div>
+              <div style="color:var(--text-muted);font-size:.88rem">📞 ${escHtml(ride.driver_phone || '')}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div>
+              <div class="detail-label">Date</div>
+              <div class="detail-value">📅 ${fmtDate(ride.ride_date)}</div>
+            </div>
+            <div>
+              <div class="detail-label">Heure</div>
+              <div class="detail-value">⏰ ${fmtTime(ride.ride_time)}</div>
+            </div>
+            <div>
+              <div class="detail-label">Places disponibles</div>
+              <div class="detail-value" id="liveSeatCount">
+                ${full
+                  ? `<span class="badge badge-red">❌ Complet</span>`
+                  : `💺 <strong>${seats}</strong> place${seats > 1 ? 's' : ''}`}
+              </div>
+            </div>
+            <div>
+              <div class="detail-label">Prix / personne</div>
+              <div class="detail-value" style="color:var(--blue-primary);font-weight:700;font-size:1.1rem">
+                ${fmtPrice(price)}
+              </div>
+            </div>
+          </div>
+
+          ${ride.note ? `
+          <div style="margin-top:16px;padding:14px;background:var(--bg);border-radius:var(--radius-sm);">
+            <div class="detail-label">📝 Note du conducteur</div>
+            <div class="detail-value mt-8">${escHtml(ride.note)}</div>
+          </div>` : ''}
+        </div>
+
+      </div>
+
+      <!-- Right column: booking card -->
+      <aside>
+        <div class="booking-card" id="bookingCard">
+          <div class="booking-price">${fmtPrice(price)}</div>
+          <div class="booking-price-sub">par personne</div>
+
+          ${full ? `
+            <div class="alert alert-error">❌ Ce trajet est complet.</div>
+          ` : `
+            <div class="seats-selector">
+              <label>Places à réserver</label>
+              <div class="seats-counter">
+                <button class="seats-btn" id="btnMinus" onclick="changeSeat(-1)">−</button>
+                <span class="seats-num" id="seatsNum">1</span>
+                <button class="seats-btn" id="btnPlus"  onclick="changeSeat(+1)">+</button>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        padding:10px 0;border-top:1px solid var(--border);margin-bottom:16px;">
+              <span style="font-weight:600">Total</span>
+              <span style="font-family:var(--font-head);font-weight:800;color:var(--blue-primary);font-size:1.1rem"
+                    id="totalPrice">${fmtPrice(price)}</span>
+            </div>
+
+            <button class="btn btn-primary btn-full btn-lg" id="btnBook" onclick="prepareBooking()">
+              ✅ Réserver ce trajet
+            </button>
+
+            <p style="font-size:.78rem;color:var(--text-muted);text-align:center;margin-top:10px">
+              🔒 Réservation sécurisée · Sans frais cachés
+            </p>
+          `}
+
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);
+                      display:flex;flex-direction:column;gap:8px;font-size:.85rem;color:var(--text-secondary);">
+            <div>📅 ${fmtDate(ride.ride_date)}</div>
+            <div>⏰ ${fmtTime(ride.ride_time)}</div>
+            <div>📞 ${escHtml(ride.driver_phone || 'Non renseigné')}</div>
+          </div>
+        </div>
+      </aside>
+
+    </div>`;
+
+  // Init map after DOM is ready
+  setTimeout(() => initMap(from, to), 100);
+}
+
+/* Seat counter  */
+function changeSeat(delta) {
+  const maxSeats = parseInt(currentRide?.available_seats ?? 1);
+  seatsToPick = Math.max(1, Math.min(maxSeats, seatsToPick + delta));
+  document.getElementById('seatsNum').textContent = seatsToPick;
+  document.getElementById('btnMinus').disabled = seatsToPick <= 1;
+  document.getElementById('btnPlus').disabled  = seatsToPick >= maxSeats;
+  const price = parseFloat(currentRide?.price ?? 0);
+  document.getElementById('totalPrice').textContent = fmtPrice(price * seatsToPick);
+}
+
+/* Prepare booking → show confirm modal */
+function prepareBooking() {
+  if (!Session.isAuth()) {
+    showToast('Veuillez vous connecter pour réserver.', 'info');
+    setTimeout(() => window.location.href = 'login.html', 1200);
+    return;
+  }
+  const price = parseFloat(currentRide?.price ?? 0);
+  document.getElementById('confirmSummary').innerHTML = `
+    <div style="display:grid;gap:10px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span>Trajet</span>
+        <strong>${escHtml(currentRide.from_city)} → ${escHtml(currentRide.to_city)}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span>Date</span>
+        <strong>${fmtDate(currentRide.ride_date)} ${fmtTime(currentRide.ride_time)}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span>Places</span>
+        <strong>${seatsToPick}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:1.1rem;">
+        <span>Total</span>
+        <strong style="color:var(--blue-primary)">${fmtPrice(price * seatsToPick)}</strong>
+      </div>
+    </div>`;
+  openModal('confirmModal');
+}
+
+/*  Actual booking API call  */
+async function confirmBook() {
+  const btn = document.getElementById('btnConfirmBook');
+  btn.disabled = true;
+  btn.textContent = '⏳ Réservation...';
+
+  const data = await apiFetch(API.rides.book, {
+    method: 'POST',
+    body: {
+      ride_id:      parseInt(currentRide.id),
+      passenger_id: Session.id(),
+      seats:        seatsToPick,
+    }
+  });
+
+  closeModal('confirmModal');
+
+  if (data.success) {
+    // Live update seat count (mirrors Android bookRideAPI)
+    const newSeats = parseInt(data.available_seats ?? 0);
+    currentRide.available_seats = newSeats;
+
+    showToast('🎉 Réservation confirmée !', 'success', 4000);
+
+    // Update UI seat count live
+    const seatEl = document.getElementById('liveSeatCount');
+    if (seatEl) {
+      seatEl.innerHTML = newSeats <= 0
+        ? `<span class="badge badge-red">❌ Complet</span>`
+        : `💺 <strong>${newSeats}</strong> place${newSeats > 1 ? 's' : ''}`;
+    }
+
+    // Disable book button if full
+    const bookBtn = document.getElementById('btnBook');
+    if (bookBtn && newSeats <= 0) {
+      bookBtn.disabled = true;
+      bookBtn.textContent = '❌ Complet';
+    }
+
+    seatsToPick = 1;
+  } else {
+    showToast('❌ ' + (data.message || 'Erreur lors de la réservation.'), 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '✅ Confirmer la réservation';
+}
+
+/*  Init Leaflet map  */
+function initMap(from, to) {
+  const fromCoords = getCityCoords(from);
+  const toCoords   = getCityCoords(to);
+  const midLat = (fromCoords[0] + toCoords[0]) / 2;
+  const midLng = (fromCoords[1] + toCoords[1]) / 2;
+
+  const mapEl = document.getElementById('detailMap');
+  if (!mapEl) return;
+
+  if (leafletMap) { leafletMap.remove(); leafletMap = null; }
+
+  leafletMap = L.map('detailMap').setView([midLat, midLng], 7);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(leafletMap);
+
+  // Departure marker
+  L.marker(fromCoords)
+   .addTo(leafletMap)
+   .bindPopup(`<b>🟢 Départ</b><br>${from}`)
+   .openPopup();
+
+  // Arrival marker
+  L.marker(toCoords)
+   .addTo(leafletMap)
+   .bindPopup(`<b>🔴 Arrivée</b><br>${to}`);
+
+  // Route polyline (mirrors MapActivity.java)
+  L.polyline([fromCoords, toCoords], {
+    color: '#1565C0', weight: 4, dashArray: '6,4'
+  }).addTo(leafletMap);
+}
+
+function showError(msg) {
+  document.getElementById('pageContent').innerHTML =
+    `<div class="alert alert-error">❌ ${escHtml(msg)} <a href="index.html">← Retour</a></div>`;
+}
+</script>
+</body>
+</html>

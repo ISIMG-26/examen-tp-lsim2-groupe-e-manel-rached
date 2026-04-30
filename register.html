@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Inscription — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+
+<!-- Navigation partagée -->
+<div id="main-nav"></div>
+
+<!-- En-tête de page  -->
+<header class="page-hero">
+  <div class="page-hero-inner">
+    <h1>📝 Créer un compte</h1>
+    <p>Rejoignez la communauté Covoiturage TN</p>
+  </div>
+</header>
+
+<!--  Contenu principal  -->
+<main>
+  <section class="auth-wrap" aria-label="Formulaire d'inscription">
+    <div class="auth-card">
+
+      <div class="auth-header">
+        <div class="emoji">📝</div>
+        <h2>Inscription</h2>
+        <p>Créez votre compte gratuitement</p>
+      </div>
+
+      <div class="auth-body">
+
+        <!-- Alerte erreur serveur -->
+        <div id="registerAlert" class="alert alert-error hidden" role="alert"></div>
+
+        <!-- Champ nom complet -->
+        <div class="form-group">
+          <label class="form-label" for="fullName">Nom complet</label>
+          <input type="text" id="fullName" class="form-control"
+                 placeholder="Ahmed Ben Ali"
+                 autocomplete="name" required aria-required="true"/>
+          <span class="form-error" id="nameErr" role="alert">
+            Le nom complet est requis.
+          </span>
+        </div>
+
+        <!-- Champ email -->
+        <div class="form-group">
+          <label class="form-label" for="email">Adresse e-mail</label>
+          <input type="email" id="email" class="form-control"
+                 placeholder="vous@exemple.com"
+                 autocomplete="email" required aria-required="true"/>
+          <span class="form-error" id="emailErr" role="alert">
+            Adresse email invalide.
+          </span>
+        </div>
+
+        <!-- Champ téléphone -->
+        <div class="form-group">
+          <label class="form-label" for="phone">Téléphone (8 chiffres)</label>
+          <input type="tel" id="phone" class="form-control"
+                 placeholder="55123456"
+                 maxlength="8" autocomplete="tel"
+                 required aria-required="true"/>
+          <span class="form-error" id="phoneErr" role="alert">
+            8 chiffres sont requis (ex: 55123456).
+          </span>
+        </div>
+
+        <!-- Champ mot de passe -->
+        <div class="form-group">
+          <label class="form-label" for="password">Mot de passe</label>
+          <input type="password" id="password" class="form-control"
+                 placeholder="Minimum 6 caractères"
+                 autocomplete="new-password" required aria-required="true"/>
+          <span class="form-error" id="passErr" role="alert">
+            Minimum 6 caractères.
+          </span>
+        </div>
+
+        <!-- Champ confirmation mot de passe -->
+        <div class="form-group">
+          <label class="form-label" for="confirm">Confirmer le mot de passe</label>
+          <input type="password" id="confirm" class="form-control"
+                 placeholder="Répétez le mot de passe"
+                 autocomplete="new-password" required aria-required="true"/>
+          <span class="form-error" id="confirmErr" role="alert">
+            Les mots de passe ne correspondent pas.
+          </span>
+        </div>
+
+        <!-- Bouton inscription -->
+        <button class="btn btn-primary btn-full btn-lg"
+                id="btnRegister" type="button">
+          📝 Créer mon compte
+        </button>
+
+      </div>
+
+      <div class="auth-footer">
+        Déjà un compte ?
+        <a href="login.html">Se connecter →</a>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<!--  Pied de page -->
+<footer>
+  <strong>Covoiturage TN</strong> — Partagez la route, partagez les frais 🚗
+</footer>
+
+<div id="toast-container"></div>
+<script src="assets/js/app.js"></script>
+<script>
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildNav('register');
+
+  /* Redirection si déjà connecté */
+  if (Session.isAuth()) {
+    window.location.href = 'index.html';
+    return;
+  }
+
+  /* addEventListener — bouton inscription (événement clic) */
+  document.getElementById('btnRegister')
+    .addEventListener('click', doRegister);
+
+  /* addEventListener — saisie en temps réel pour vérifier mdp */
+  document.getElementById('confirm')
+    .addEventListener('input', checkPasswordMatch);
+});
+
+/*  Vérification temps réel : mots de passe correspondent */
+function checkPasswordMatch() {
+  /* querySelector — sélection par ID dans le DOM */
+  const passVal    = document.getElementById('password').value;
+  const confirmEl  = document.getElementById('confirm');
+  const confirmErr = document.getElementById('confirmErr');
+
+  if (confirmEl.value && confirmEl.value !== passVal) {
+    confirmEl.classList.add('error');
+    confirmErr.classList.add('show');
+  } else {
+    confirmEl.classList.remove('error');
+    confirmErr.classList.remove('show');
+  }
+}
+
+/* Inscription avec validation + AJAX  */
+async function doRegister() {
+  /* getElementById — sélection des champs */
+  const nameEl    = document.getElementById('fullName');
+  const emailEl   = document.getElementById('email');
+  const phoneEl   = document.getElementById('phone');
+  const passEl    = document.getElementById('password');
+  const confirmEl = document.getElementById('confirm');
+  const btnEl     = document.getElementById('btnRegister');
+  const alertEl   = document.getElementById('registerAlert');
+
+  alertEl.classList.add('hidden');
+
+  /*  Règles de validation par champ */
+  const rules = [
+    {
+      el: nameEl, errId: 'nameErr',
+      fn: v => Validators.required(v),
+      msg: 'Le nom complet est requis.'
+    },
+    {
+      el: emailEl, errId: 'emailErr',
+      fn: v => Validators.email(v),
+      msg: 'Adresse email invalide.'
+    },
+    {
+      el: phoneEl, errId: 'phoneErr',
+      fn: v => Validators.phone(v),
+      msg: '8 chiffres requis (ex: 55123456).'
+    },
+    {
+      el: passEl, errId: 'passErr',
+      fn: v => Validators.minLen(v, 6),
+      msg: 'Minimum 6 caractères.'
+    },
+    {
+      el: confirmEl, errId: 'confirmErr',
+      fn: v => v === passEl.value,
+      msg: 'Les mots de passe ne correspondent pas.'
+    },
+  ];
+
+  /*  Validation + affichage des erreurs  */
+  let valid = true;
+  for (const rule of rules) {
+    const errEl = document.getElementById(rule.errId);
+    if (!rule.fn(rule.el.value)) {
+      /* Modifier le DOM : ajouter classe error + afficher message */
+      rule.el.classList.add('error');
+      errEl.textContent = rule.msg;
+      errEl.classList.add('show');
+      valid = false;
+    } else {
+      rule.el.classList.remove('error');
+      errEl.classList.remove('show');
+    }
+  }
+
+  /* Blocage de soumission si données invalides */
+  if (!valid) {
+    showToast('Veuillez corriger les erreurs.', 'error');
+    return;
+  }
+
+  /*  Désactiver le bouton pendant la requête  */
+  btnEl.disabled    = true;
+  btnEl.textContent = '⏳ Inscription...';
+
+  /* AJAX fetch → PHP register.php → MySQL INSERT  */
+  const data = await apiFetch(API.auth.register, {
+    method: 'POST',
+    body: {
+      full_name: nameEl.value.trim(),
+      email:     emailEl.value.trim(),
+      phone:     phoneEl.value.trim(),
+      password:  passEl.value,
+    }
+  });
+
+  if (data.success) {
+    /* Sauvegarder la session */
+    Session.set(data.data);
+    showToast('Compte créé avec succès ! Bienvenue 🎉', 'success');
+    setTimeout(() => window.location.href = 'index.html', 900);
+  } else {
+    /* Afficher message d'erreur serveur */
+    alertEl.textContent = '⚠️ ' + (data.message || 'Erreur lors de l\'inscription.');
+    alertEl.classList.remove('hidden');
+    btnEl.disabled    = false;
+    btnEl.textContent = '📝 Créer mon compte';
+  }
+}
+</script>
+</body>
+</html>

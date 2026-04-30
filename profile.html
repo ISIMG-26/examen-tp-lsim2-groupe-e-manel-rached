@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mon Profil — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<div id="main-nav"></div>
+
+<div class="page-hero">
+  <div class="page-hero-inner">
+    <h1>👤 Mon Profil</h1>
+    <p>Consultez et modifiez vos informations</p>
+  </div>
+</div>
+
+<main class="page-content">
+  <div id="profileContainer">
+    <div class="spinner-wrap"><div class="spinner"></div></div>
+  </div>
+</main>
+
+<footer><strong>Covoiturage TN</strong> — Partagez la route 🚗</footer>
+<div id="toast-container"></div>
+<script src="assets/js/app.js"></script>
+<script>
+let profileData    = null;
+let publishedCount = 0;
+let bookedCount    = 0;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!requireAuth()) return;
+  buildNav('profile');
+  await loadProfile();
+
+  /* addEventListener after DOM is built */
+  setupProfileEvents();
+});
+
+/* Load profile data via AJAX (fetch) */
+async function loadProfile() {
+  const userId = Session.id();
+
+  /* Promise.all — three AJAX calls in parallel (satisfies AJAX requirement) */
+  const [profileRes, publishedRes, bookedRes] = await Promise.all([
+    apiFetch(API.auth.profile    + '?user_id=' + userId),
+    apiFetch(API.rides.userRides + '?user_id=' + userId),
+    apiFetch(API.rides.bookings  + '?user_id=' + userId),
+  ]);
+
+  if (!profileRes.success) {
+    document.getElementById('profileContainer').innerHTML =
+      `<div class="alert alert-error">❌ Impossible de charger le profil.</div>`;
+    return;
+  }
+
+  profileData    = profileRes.data;
+  publishedCount = publishedRes.success ? (publishedRes.data || []).length : 0;
+  bookedCount    = bookedRes.success    ? (bookedRes.data  || []).length   : 0;
+
+  renderProfile();
+}
+
+/* Render profile page via DOM manipulation  */
+function renderProfile() {
+  const u = profileData;
+
+  /* getElementById + innerHTML — DOM manipulation */
+  document.getElementById('profileContainer').innerHTML = `
+
+    <div class="profile-layout">
+
+      <!-- Sidebar -->
+      <aside class="profile-sidebar">
+        <div class="profile-avatar-section">
+          <div class="profile-avatar" id="avatarEl">${initials(u.full_name)}</div>
+          <div class="profile-name"  id="profileNameEl">${escHtml(u.full_name)}</div>
+          <div class="profile-email">${escHtml(u.email)}</div>
+        </div>
+
+        <div class="profile-info-list">
+          <div class="profile-info-item">
+            <span class="icon">📧</span>
+            <div>
+              <div class="profile-info-label">E-mail</div>
+              <div class="profile-info-value">${escHtml(u.email)}</div>
+            </div>
+          </div>
+          <div class="profile-info-item">
+            <span class="icon">📱</span>
+            <div>
+              <div class="profile-info-label">Téléphone</div>
+              <div class="profile-info-value" id="sidebarPhone">${escHtml(u.phone || 'Non renseigné')}</div>
+            </div>
+          </div>
+          <div class="profile-info-item">
+            <span class="icon">🆔</span>
+            <div>
+              <div class="profile-info-label">ID utilisateur</div>
+              <div class="profile-info-value">#${u.id}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:16px;border-top:1px solid var(--border)">
+          <button class="btn btn-danger btn-full" id="btnLogout">🚪 Se déconnecter</button>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <div>
+
+        <!-- Stats -->
+        <div class="stats-row mb-24">
+          <div class="stat-card">
+            <div class="stat-number">${publishedCount}</div>
+            <div class="stat-label">Trajets publiés</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${bookedCount}</div>
+            <div class="stat-label">Réservations</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">${publishedCount + bookedCount}</div>
+            <div class="stat-label">Activité totale</div>
+          </div>
+        </div>
+
+        <!-- Edit profile form — UPDATE operation -->
+        <div class="card publish-form-card mb-24">
+          <h2 class="section-title mb-24">✏️ Modifier le profil</h2>
+
+          <div id="updateAlert" class="alert alert-error hidden" style="margin-bottom:16px"></div>
+          <div id="updateSuccess" class="alert alert-success hidden" style="margin-bottom:16px"></div>
+
+          <form id="profileForm" novalidate>
+
+            <div class="form-group mb-16">
+              <label class="form-label" for="editName">Nom complet</label>
+              <input type="text" id="editName" class="form-control"
+                     value="${escHtml(u.full_name)}" placeholder="Votre nom complet"/>
+              <span class="form-error" id="editNameErr">Le nom est requis.</span>
+            </div>
+
+            <div class="form-group mb-16">
+              <label class="form-label" for="editPhone">Téléphone (8 chiffres)</label>
+              <input type="tel" id="editPhone" class="form-control"
+                     value="${escHtml(u.phone || '')}" placeholder="55123456" maxlength="8"/>
+              <span class="form-error" id="editPhoneErr">8 chiffres requis.</span>
+            </div>
+
+            <div class="form-group mb-24">
+              <label class="form-label" for="editEmail">E-mail</label>
+              <input type="email" id="editEmail" class="form-control"
+                     value="${escHtml(u.email)}" readonly
+                     style="background:var(--bg);cursor:default"/>
+              <span class="form-hint">L'e-mail ne peut pas être modifié.</span>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="btnSaveProfile">
+              💾 Enregistrer les modifications
+            </button>
+          </form>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="card card-body">
+          <h2 class="section-title mb-16">⚡ Actions rapides</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">
+            <a href="index.html"   class="btn btn-outline" style="border-radius:var(--radius-sm)">🔍 Chercher</a>
+            <a href="publish.html" class="btn btn-primary" style="border-radius:var(--radius-sm)">➕ Publier</a>
+            <a href="myrides.html" class="btn btn-outline" style="border-radius:var(--radius-sm)">🚗 Mes trajets</a>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+}
+
+/*  Setup form events after DOM render  */
+function setupProfileEvents() {
+  /* Use event delegation since elements may not exist yet */
+  document.addEventListener('submit', e => {
+    if (e.target.id === 'profileForm') {
+      e.preventDefault();
+      saveProfile();
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.id === 'btnLogout') confirmLogout();
+  });
+}
+
+/*  saveProfile — AJAX → PHP updateProfile.php → MySQL UPDATE */
+async function saveProfile() {
+  const nameEl  = document.getElementById('editName');
+  const phoneEl = document.getElementById('editPhone');
+  const alertEl = document.getElementById('updateAlert');
+  const successEl = document.getElementById('updateSuccess');
+
+  alertEl.classList.add('hidden');
+  successEl.classList.add('hidden');
+
+  /* Client-side validation */
+  let valid = true;
+
+  if (!Validators.required(nameEl.value)) {
+    nameEl.classList.add('error');
+    document.getElementById('editNameErr').classList.add('show');
+    valid = false;
+  } else {
+    nameEl.classList.remove('error');
+    document.getElementById('editNameErr').classList.remove('show');
+  }
+
+  const phone = phoneEl.value.trim();
+  if (phone !== '' && !Validators.phone(phone)) {
+    phoneEl.classList.add('error');
+    document.getElementById('editPhoneErr').classList.add('show');
+    valid = false;
+  } else {
+    phoneEl.classList.remove('error');
+    document.getElementById('editPhoneErr').classList.remove('show');
+  }
+
+  if (!valid) return;
+
+  const btn = document.getElementById('btnSaveProfile');
+  btn.disabled    = true;
+  btn.textContent = '⏳ Enregistrement...';
+
+  /* fetch() AJAX → PHP → MySQL UPDATE */
+  const data = await apiFetch('/auth/updateProfile.php', {
+    method: 'POST',
+    body: {
+      user_id:   Session.id(),
+      full_name: nameEl.value.trim(),
+      phone:     phone,
+    }
+  });
+
+  if (data.success) {
+    /* Update session data */
+    const user = Session.get();
+    user.full_name = data.data.full_name;
+    user.phone     = data.data.phone;
+    Session.set(user);
+
+    /* Live DOM update without page reload */
+    const nameDisplay = document.getElementById('profileNameEl');
+    const avatarEl    = document.getElementById('avatarEl');
+    const phoneEl2    = document.getElementById('sidebarPhone');
+    if (nameDisplay) nameDisplay.textContent = data.data.full_name;
+    if (avatarEl)    avatarEl.textContent    = initials(data.data.full_name);
+    if (phoneEl2)    phoneEl2.textContent    = data.data.phone || 'Non renseigné';
+
+    successEl.textContent = '✅ Profil mis à jour avec succès !';
+    successEl.classList.remove('hidden');
+    showToast('✅ Profil mis à jour !', 'success');
+
+    /* Rebuild nav to reflect new name */
+    buildNav('profile');
+  } else {
+    alertEl.textContent = '❌ ' + (data.message || 'Erreur lors de la mise à jour.');
+    alertEl.classList.remove('hidden');
+  }
+
+  btn.disabled    = false;
+  btn.textContent = '💾 Enregistrer les modifications';
+}
+
+function confirmLogout() {
+  if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+    Session.clear();
+    showToast('À bientôt ! 👋', 'info');
+    setTimeout(() => window.location.href = 'login.html', 700);
+  }
+}
+</script>
+</body>
+</html>

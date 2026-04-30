@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Connexion — Covoiturage TN</title>
+  <link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+
+<!--  Navigation partagée -->
+<div id="main-nav"></div>
+
+<!--  En-tête de page  -->
+<header class="page-hero">
+  <div class="page-hero-inner">
+    <h1>🔑 Connexion</h1>
+    <p>Accédez à votre espace personnel</p>
+  </div>
+</header>
+
+<!--  Contenu principal  -->
+<main>
+  <section class="auth-wrap" aria-label="Formulaire de connexion">
+    <div class="auth-card">
+
+      <div class="auth-header">
+        <div class="emoji">🚗</div>
+        <h2>Bienvenue !</h2>
+        <p>Connectez-vous à votre compte</p>
+      </div>
+
+      <div class="auth-body">
+
+        <!-- Alerte erreur -->
+        <div id="loginAlert" class="alert alert-error hidden" role="alert"></div>
+
+        <!-- Champ email -->
+        <div class="form-group">
+          <label class="form-label" for="email">Adresse e-mail</label>
+          <input type="email" id="email" class="form-control"
+                 placeholder="vous@exemple.com"
+                 autocomplete="email" required
+                 aria-required="true"/>
+          <span class="form-error" id="emailErr" role="alert">
+            Veuillez entrer un email valide.
+          </span>
+        </div>
+
+        <!-- Champ mot de passe -->
+        <div class="form-group">
+          <label class="form-label" for="password">Mot de passe</label>
+          <input type="password" id="password" class="form-control"
+                 placeholder="••••••••"
+                 autocomplete="current-password" required
+                 aria-required="true"/>
+          <span class="form-error" id="passErr" role="alert">
+            Le mot de passe est requis.
+          </span>
+        </div>
+
+        <!-- Bouton connexion -->
+        <button class="btn btn-primary btn-full btn-lg"
+                id="btnLogin" type="button">
+          🔑 Se connecter
+        </button>
+
+      </div>
+
+      <div class="auth-footer">
+        Pas encore de compte ?
+        <a href="register.html">Créer un compte →</a>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<!--  Pied de page -->
+<footer>
+  <strong>Covoiturage TN</strong> — Partagez la route, partagez les frais 🚗
+</footer>
+
+<div id="toast-container"></div>
+<script src="assets/js/app.js"></script>
+<script>
+/* ============================================================
+   login.html — Script page connexion
+   - Validation des champs (email, mot de passe)
+   - AJAX fetch vers auth/login.php
+   - Gestion de la session (localStorage)
+   ============================================================ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildNav('login');
+
+  /* Redirection si déjà connecté */
+  if (Session.isAuth()) {
+    window.location.href = 'index.html';
+    return;
+  }
+
+  /* addEventListener — bouton connexion (événement clic) */
+  document.getElementById('btnLogin')
+    .addEventListener('click', doLogin);
+
+  /* addEventListener — touche Entrée dans les champs */
+  document.getElementById('email')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('password')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+});
+
+/*  Connexion avec validation + AJAX  */
+async function doLogin() {
+  /* getElementById — sélection des éléments du formulaire */
+  const emailEl = document.getElementById('email');
+  const passEl  = document.getElementById('password');
+  const btnEl   = document.getElementById('btnLogin');
+  const alertEl = document.getElementById('loginAlert');
+
+  /* Cacher l'alerte précédente */
+  alertEl.classList.add('hidden');
+
+  /*  Validation côté client  */
+  let valid = true;
+
+  /* Validation email */
+  const emailErr = document.getElementById('emailErr');
+  if (!Validators.email(emailEl.value)) {
+    emailEl.classList.add('error');
+    emailErr.classList.add('show');          /* Afficher message d'erreur */
+    valid = false;
+  } else {
+    emailEl.classList.remove('error');
+    emailErr.classList.remove('show');
+  }
+
+  /* Validation mot de passe */
+  const passErr = document.getElementById('passErr');
+  if (!Validators.required(passEl.value)) {
+    passEl.classList.add('error');
+    passErr.classList.add('show');
+    valid = false;
+  } else {
+    passEl.classList.remove('error');
+    passErr.classList.remove('show');
+  }
+
+  /* Blocage de soumission si données invalides */
+  if (!valid) return;
+
+  /*  Désactiver le bouton pendant la requête  */
+  btnEl.disabled    = true;
+  btnEl.textContent = '⏳ Connexion...';
+
+  /* AJAX fetch → PHP login.php → MySQL SELECT */
+  const data = await apiFetch(API.auth.login, {
+    method: 'POST',
+    body: {
+      email:    emailEl.value.trim(),
+      password: passEl.value
+    }
+  });
+
+  if (data.success) {
+    /* Sauvegarder la session */
+    Session.set(data.data);
+    showToast('Connexion réussie ! Bienvenue 👋', 'success');
+    /* Modification DOM : redirection après 800ms */
+    setTimeout(() => window.location.href = 'index.html', 800);
+  } else {
+    /* Afficher l'erreur serveur dans l'alerte */
+    alertEl.textContent = '⚠️ ' + (data.message || 'Identifiants invalides');
+    alertEl.classList.remove('hidden');
+    btnEl.disabled    = false;
+    btnEl.textContent = '🔑 Se connecter';
+  }
+}
+</script>
+</body>
+</html>
